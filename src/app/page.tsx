@@ -1,7 +1,5 @@
+import AppShell from "@/components/layouts/AppShell";
+
 export default function Home() {
-  return (
-    <div className="">
-      
-    </div>
-  );
+  return <AppShell />;
 }
