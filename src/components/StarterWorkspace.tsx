@@ -19,7 +19,8 @@ export default function StarterWorkspace({ onOpenFolder }: StarterWorkspaceProps
               <Code2 size={56} className="text-amber-500" />
             </div>
           </div>
-          <h1 className="text-5xl font-bold text-zinc-100 mb-3 tracking-tight">
+          <div className="flex justify-center items-center flex-col">
+            <h1 className="text-5xl font-bold text-zinc-100 mb-10 tracking-tight">
             Welcome to CodeHelp
           </h1>
           <p className="text-zinc-400 text-base leading-relaxed max-w-lg mx-auto">
@@ -29,6 +30,7 @@ export default function StarterWorkspace({ onOpenFolder }: StarterWorkspaceProps
               All reads and writes go directly to disk — no server required.
             </span>
           </p>
+          </div>
         </div>
 
         {/* Quick Actions */}
@@ -37,9 +39,9 @@ export default function StarterWorkspace({ onOpenFolder }: StarterWorkspaceProps
             onClick={onOpenFolder}
             className="group relative px-8 py-3.5 bg-gradient-to-br from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white rounded-lg font-semibold text-base transition-all duration-200 shadow-lg hover:shadow-xl hover:shadow-amber-500/20 transform hover:scale-[1.02] active:scale-[0.98]"
           >
-            <span className="flex items-center justify-center gap-2">
+            <span className="flex items-center justify-center gap-2 p-4">
               <FolderOpen size={18} />
-              <span>Open Folder</span>
+              <span className="p-1">Open Folder</span>
             </span>
           </button>
 
@@ -48,7 +50,7 @@ export default function StarterWorkspace({ onOpenFolder }: StarterWorkspaceProps
             disabled
           >
             <span className="flex items-center justify-center gap-2">
-              <span>Recent Files</span>
+              <span className="p-1">Recent Files</span>
             </span>
           </button>
         </div>
