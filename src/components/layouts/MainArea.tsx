@@ -1,122 +1,67 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import Workspace from "@/components/layouts/Workspace";
+/**
+ * MainArea — driven entirely by FileSystemContext.
+ *
+ * Manages editor tabs and passes real file content + change callbacks
+ * to the Monaco editor. Handles Ctrl+S for immediate saves.
+ */
+
+import React, { useEffect } from "react";
+import { useFileSystem } from "@/context/FileSystemContext";
 import EditorTabs from "@/components/layouts/EditorTabs";
+import Workspace from "@/components/layouts/Workspace";
 
-type EditorTab = {
-  id: string;
-  name: string;
-  isDirty?: boolean;
-  content?: string;
-  language?: string;
-};
-
+// Legacy prop kept for AppShell compatibility (no-op now — context handles this)
 type MainAreaProps = {
   onOpenFileChange?: (fn: (fileName: string) => void) => void;
 };
 
 export default function MainArea({ onOpenFileChange }: MainAreaProps) {
-  const [tabs, setTabs] = useState<EditorTab[]>([
-    {
-      id: "1",
-      name: "page.tsx",
-      isDirty: false,
-      content: "// Welcome to CodeHelp\n// Start editing this file",
-      language: "typescript",
-    },
-  ]);
+  const {
+    tabs,
+    activeTabId,
+    closeTab,
+    setActiveTab,
+    handleContentChange,
+    saveActiveTab,
+  } = useFileSystem();
 
-  const [activeTabId, setActiveTabId] = useState("1");
+  const activeTab = tabs.find((t) => t.id === activeTabId);
 
-  const activeTab = tabs.find((tab) => tab.id === activeTabId);
-
-  const getFileLanguage = (fileName: string) => {
-    if (fileName.endsWith(".tsx") || fileName.endsWith(".ts")) return "typescript";
-    if (fileName.endsWith(".jsx") || fileName.endsWith(".js")) return "javascript";
-    if (fileName.endsWith(".css") || fileName.endsWith(".scss")) return "css";
-    if (fileName.endsWith(".md")) return "markdown";
-    if (fileName.endsWith(".json")) return "json";
-    return "javascript";
-  };
-
-  const getFileContent = (fileName: string) => {
-    const fileContents: Record<string, string> = {
-      "page.tsx": `export default function Home() {
-  return <div>Welcome to CodeHelp</div>;
-}`,
-    };
-
-    return fileContents[fileName] || `// File: ${fileName}`;
-  };
-
-  const handleOpenFile = useCallback((fileName: string) => {
-    if (!fileName) return;
-
-    setTabs((prevTabs) => {
-      const existing = prevTabs.find((tab) => tab.name === fileName);
-
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prevTabs;
+  // ── Keyboard shortcut: Ctrl+S / Cmd+S ───────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        saveActiveTab();
       }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [saveActiveTab]);
 
-      const id = Date.now().toString();
-
-      const newTab: EditorTab = {
-        id,
-        name: fileName,
-        isDirty: false,
-        content: getFileContent(fileName),
-        language: getFileLanguage(fileName),
-      };
-
-      setActiveTabId(id);
-      return [...prevTabs, newTab];
+  // Provide a legacy shim so AppShell doesn't break (it passes a no-op now)
+  useEffect(() => {
+    onOpenFileChange?.(() => {
+      // no-op: file opening is now handled via FileSystemContext.openTab
     });
-  }, []);
-
-  const handleTabClose = useCallback(
-    (id: string) => {
-      setTabs((prevTabs) => {
-        const nextTabs = prevTabs.filter((tab) => tab.id !== id);
-
-        if (activeTabId === id) {
-          setActiveTabId(nextTabs[0]?.id ?? "");
-        }
-
-        return nextTabs;
-      });
-    },
-    [activeTabId]
-  );
-
-  // Keep latest callback in ref
-  const openFileRef = useRef(handleOpenFile);
-
-  useEffect(() => {
-    openFileRef.current = handleOpenFile;
-  }, [handleOpenFile]);
-
-  // Register to parent
-  useEffect(() => {
-    if (!onOpenFileChange) return;
-    onOpenFileChange((fileName: string) => openFileRef.current(fileName));
   }, [onOpenFileChange]);
 
   return (
     <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden">
       <EditorTabs
         tabs={tabs}
-        activeTabId={activeTabId}
-        onTabChange={setActiveTabId}
-        onTabClose={handleTabClose}
+        activeTabId={activeTabId ?? ""}
+        onTabChange={setActiveTab}
+        onTabClose={closeTab}
       />
 
       <Workspace
         activeTab={activeTab}
-        onOpenFile={handleOpenFile}
-        hasOpenTabs={tabs.length > 0}
+        onContentChange={(newContent) => {
+          if (activeTabId) handleContentChange(activeTabId, newContent);
+        }}
       />
     </div>
   );

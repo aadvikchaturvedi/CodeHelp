@@ -1,16 +1,14 @@
-import React from 'react'
-import { Code2, Lightbulb, Code, Zap, Eye } from "lucide-react";
+"use client";
+
+import React from "react";
+import { Code2, Lightbulb, Code, Zap, Eye, FolderOpen } from "lucide-react";
 
 type StarterWorkspaceProps = {
   onOpenFile?: (fileName: string) => void;
+  onOpenFolder?: () => void;
 };
 
-export default function StarterWorkspace({ onOpenFile }: StarterWorkspaceProps) {
-  const handleNewFile = () => {
-    // Create new file logic
-    console.log("Creating new file...");
-  };
-
+export default function StarterWorkspace({ onOpenFolder }: StarterWorkspaceProps) {
   return (
     <section className="flex-1 bg-zinc-950 flex flex-col items-center justify-center pt-12 overflow-y-auto">
       <div className="w-full max-w-2xl px-8">
@@ -25,38 +23,38 @@ export default function StarterWorkspace({ onOpenFile }: StarterWorkspaceProps) 
             Welcome to CodeHelp
           </h1>
           <p className="text-zinc-400 text-base leading-relaxed max-w-lg mx-auto">
-            Select a file from the sidebar or create a new file to start coding.
+            Open a folder from your computer to start browsing and editing real files.
             <br />
-            <span className="text-zinc-500 text-sm">AI assistance with Ollama will appear here soon.</span>
+            <span className="text-zinc-500 text-sm">
+              All reads and writes go directly to disk — no server required.
+            </span>
           </p>
         </div>
 
-        {/* Quick Actions - Premium Button Styling */}
+        {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-6 mb-16">
-          {/* Primary Button */}
           <button
-            onClick={handleNewFile}
-            className="group relative px-8 py-3.5 bg-linear-to-br from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white rounded-lg font-semibold text-base transition-all duration-200 shadow-lg hover:shadow-xl hover:shadow-amber-500/20 transform hover:scale-[1.02] active:scale-[0.98]"
+            onClick={onOpenFolder}
+            className="group relative px-8 py-3.5 bg-gradient-to-br from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white rounded-lg font-semibold text-base transition-all duration-200 shadow-lg hover:shadow-xl hover:shadow-amber-500/20 transform hover:scale-[1.02] active:scale-[0.98]"
           >
             <span className="flex items-center justify-center gap-2">
-              <span className="text-lg">+</span>
-              <span>New File</span>
+              <FolderOpen size={18} />
+              <span>Open Folder</span>
             </span>
           </button>
 
-          {/* Secondary Button */}
           <button
-            onClick={() => onOpenFile?.("README.md")}
-            className="px-8 py-3.5 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-100 rounded-lg font-semibold text-base transition-all duration-200 border border-zinc-700/60 hover:border-zinc-600/80 hover:shadow-lg active:scale-[0.98]"
+            className="px-8 py-3.5 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-400 rounded-lg font-semibold text-base transition-all duration-200 border border-zinc-700/60 cursor-not-allowed opacity-50"
+            disabled
           >
             <span className="flex items-center justify-center gap-2">
-              <span>Open File</span>
+              <span>Recent Files</span>
             </span>
           </button>
         </div>
 
-        {/* Tips Section - Enhanced Design */}
-        <div className="bg-linear-to-br from-zinc-800/40 to-zinc-900/40 border border-zinc-700/30 rounded-xl p-8 backdrop-blur-sm mb-16 hover:border-zinc-700/50 transition-colors duration-200">
+        {/* Tips Section */}
+        <div className="bg-gradient-to-br from-zinc-800/40 to-zinc-900/40 border border-zinc-700/30 rounded-xl p-8 backdrop-blur-sm mb-16 hover:border-zinc-700/50 transition-colors duration-200">
           <div className="flex gap-4">
             <div className="p-2.5 bg-amber-500/10 rounded-lg shrink-0">
               <Lightbulb size={20} className="text-amber-500" />
@@ -66,26 +64,34 @@ export default function StarterWorkspace({ onOpenFile }: StarterWorkspaceProps) 
               <ul className="space-y-3 text-sm text-zinc-400">
                 <li className="flex items-center gap-3 hover:text-zinc-300 transition-colors">
                   <span className="text-amber-500/60">•</span>
-                  Press <kbd className="bg-zinc-900/60 px-2.5 py-1 rounded text-zinc-300 border border-zinc-700/50 text-xs font-mono">Ctrl+K</kbd> to open Command Palette
+                  Press <kbd className="bg-zinc-900/60 px-2.5 py-1 rounded text-zinc-300 border border-zinc-700/50 text-xs font-mono">Ctrl+S</kbd> to save the current file instantly
                 </li>
                 <li className="flex items-center gap-3 hover:text-zinc-300 transition-colors">
                   <span className="text-amber-500/60">•</span>
-                  Use <kbd className="bg-zinc-900/60 px-2.5 py-1 rounded text-zinc-300 border border-zinc-700/50 text-xs font-mono">Ctrl+Shift+E</kbd> to toggle Explorer
+                  Files auto-save 800ms after your last keystroke
                 </li>
                 <li className="flex items-center gap-3 hover:text-zinc-300 transition-colors">
                   <span className="text-amber-500/60">•</span>
-                  Search files with <kbd className="bg-zinc-900/60 px-2.5 py-1 rounded text-zinc-300 border border-zinc-700/50 text-xs font-mono">Ctrl+Shift+F</kbd>
+                  Right-click any file or folder to create, delete
                 </li>
                 <li className="flex items-center gap-3 hover:text-zinc-300 transition-colors">
                   <span className="text-amber-500/60">•</span>
-                  Format code with <kbd className="bg-zinc-900/60 px-2.5 py-1 rounded text-zinc-300 border border-zinc-700/50 text-xs font-mono">Shift+Alt+F</kbd>
+                  Press <kbd className="bg-zinc-900/60 px-2.5 py-1 rounded text-zinc-300 border border-zinc-700/50 text-xs font-mono">Ctrl+B</kbd> to toggle Explorer
                 </li>
               </ul>
             </div>
           </div>
         </div>
 
-        {/* Features Section - Premium Cards */}
+        {/* Storage method badge */}
+        <div className="flex justify-center mb-8">
+          <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-4 py-2 text-xs text-emerald-400 font-medium">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            File System Access API — reads & writes directly to your disk
+          </div>
+        </div>
+
+        {/* Features Section */}
         <div className="space-y-4 pb-16">
           <div>
             <p className="text-xs uppercase tracking-widest text-zinc-600 font-semibold mb-6">
@@ -94,13 +100,13 @@ export default function StarterWorkspace({ onOpenFile }: StarterWorkspaceProps) 
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { title: "Monaco Editor", desc: "Full-featured code editor", Icon: Code },
-              { title: "AI Assistant", desc: "Refactor & debug help", Icon: Zap },
-              { title: "Live Preview", desc: "Run code in browser", Icon: Eye },
+              { title: "AI Assistant", desc: "Refactor & debug with Ollama", Icon: Zap },
+              { title: "Live Preview", desc: "Run code in the browser", Icon: Eye },
+              { title: "Multi-cursor", desc: "Power editing features", Icon: Code },
             ].map((feature, idx) => (
               <div
                 key={idx}
-                className="group bg-linear-to-br from-zinc-800/30 to-zinc-900/20 border border-zinc-700/40 rounded-lg p-4 hover:border-amber-500/30 hover:bg-zinc-800/40 transition-all duration-200 cursor-pointer transform hover:scale-[1.02]"
+                className="group bg-gradient-to-br from-zinc-800/30 to-zinc-900/20 border border-zinc-700/40 rounded-lg p-4 hover:border-amber-500/30 hover:bg-zinc-800/40 transition-all duration-200 cursor-pointer transform hover:scale-[1.02]"
               >
                 <div className="mb-2">
                   <feature.Icon size={28} className="text-amber-400" />
@@ -113,5 +119,5 @@ export default function StarterWorkspace({ onOpenFile }: StarterWorkspaceProps) 
         </div>
       </div>
     </section>
-  )
+  );
 }

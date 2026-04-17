@@ -1,298 +1,509 @@
 "use client";
 
-import React, { useState } from "react";
-import FileItem from "@/components/FileItem";
+/**
+ * SideBar — real file tree driven by FileSystemContext.
+ *
+ * Features:
+ *   - Open Folder button (calls File System Access API)
+ *   - Expandable/collapsible tree nodes
+ *   - File-type icons with colors
+ *   - Right-click context menu: New File, New Folder, Delete
+ *   - Inline name input for creating new files/folders
+ *   - Active file highlight synced to editor
+ */
+
+import React, { useCallback, useRef, useState } from "react";
+import { useFileSystem } from "@/context/FileSystemContext";
+import type { FileNode } from "@/lib/fs/types";
 import {
   ChevronDown,
-  Plus,
-  MoreVertical,
-  ChevronLeft,
+  ChevronRight,
   Code2,
-  FileCode2,
-  Palette,
-  FileText,
-  Settings,
-  Package,
-  Zap,
-  GitBranch,
-  Box,
-  Globe,
   File,
+  FileCode2,
+  FileJson,
+  FileText,
+  FilePlus,
   Folder,
+  FolderOpen,
+  FolderPlus,
+  GitBranch,
+  Globe,
+  MoreVertical,
+  Palette,
+  Package,
+  Settings,
+  Trash2,
+  FolderInput,
+  ChevronLeft,
+  Zap,
+  Loader2,
 } from "lucide-react";
 
-type FileType = {
-  id: string;
-  name: string;
-  content: string;
-  language: string;
-};
+// ─── Icon helpers ──────────────────────────────────────────────────────────────
 
-type TreeItem = {
-  id: string;
-  name: string;
-  type: "file" | "folder";
-  children?: TreeItem[];
-  icon?: string;
-  color?: string;
-};
+function getFileIcon(name: string): { Icon: React.ComponentType<{ size?: number; className?: string }>; color: string } {
+  const ext = name.split(".").pop()?.toLowerCase();
+  if (name.startsWith(".git")) return { Icon: GitBranch, color: "text-red-400" };
+  if (name === "package.json" || name === "package-lock.json") return { Icon: Package, color: "text-green-400" };
+  if (ext === "tsx" || ext === "jsx") return { Icon: Code2, color: "text-blue-400" };
+  if (ext === "ts") return { Icon: Code2, color: "text-blue-300" };
+  if (ext === "js" || ext === "mjs" || ext === "cjs") return { Icon: FileCode2, color: "text-yellow-400" };
+  if (ext === "css" || ext === "scss" || ext === "less") return { Icon: Palette, color: "text-purple-400" };
+  if (ext === "md" || ext === "mdx") return { Icon: FileText, color: "text-orange-400" };
+  if (ext === "json" || ext === "jsonc") return { Icon: FileJson, color: "text-amber-300" };
+  if (ext === "html" || ext === "svg") return { Icon: Globe, color: "text-blue-300" };
+  if (ext === "env" || name.startsWith(".")) return { Icon: Settings, color: "text-red-300" };
+  return { Icon: File, color: "text-zinc-400" };
+}
+
+function getFolderIcon(name: string, open: boolean): { Icon: React.ComponentType<{ size?: number; className?: string }>; color: string } {
+  if (name === "node_modules") return { Icon: Package, color: "text-green-400" };
+  if (name === ".next") return { Icon: Zap, color: "text-yellow-400" };
+  if (name === ".git") return { Icon: GitBranch, color: "text-red-400" };
+  if (name === "public") return { Icon: Globe, color: "text-blue-300" };
+  const Icon = open ? FolderOpen : Folder;
+  return { Icon, color: "text-amber-400" };
+}
+
+// ─── Inline name input (new file / folder) ─────────────────────────────────────
+
+interface InlineInputProps {
+  placeholder: string;
+  onConfirm: (name: string) => void;
+  onCancel: () => void;
+  indent: number;
+}
+
+function InlineInput({ placeholder, onConfirm, onCancel, indent }: InlineInputProps) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const confirm = () => {
+    const trimmed = value.trim();
+    if (trimmed) onConfirm(trimmed);
+    else onCancel();
+  };
+
+  return (
+    <div
+      className="flex items-center gap-2 py-1 pr-2"
+      style={{ paddingLeft: `${indent}px` }}
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={placeholder}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") confirm();
+          if (e.key === "Escape") onCancel();
+        }}
+        onBlur={confirm}
+        className="
+          flex-1 bg-zinc-800 border border-amber-500/60 rounded px-2 py-0.5
+          text-sm text-zinc-100 placeholder-zinc-500 outline-none
+          focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30
+        "
+      />
+    </div>
+  );
+}
+
+// ─── Context menu ──────────────────────────────────────────────────────────────
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  node: FileNode;
+}
+
+// ─── TreeNode ──────────────────────────────────────────────────────────────────
+
+interface TreeNodeProps {
+  node: FileNode;
+  level: number;
+  onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
+}
+
+function TreeNode({ node, level, onContextMenu }: TreeNodeProps) {
+  const { expandedIds, toggleExpanded, activeTabId, openTab } = useFileSystem();
+  const isExpanded = expandedIds.has(node.id);
+  const isActive = activeTabId === node.id;
+  const indent = 12 + level * 16;
+
+  if (node.kind === "directory") {
+    const { Icon, color } = getFolderIcon(node.name, isExpanded);
+    return (
+      <div>
+        <button
+          onContextMenu={(e) => onContextMenu(e, node)}
+          onClick={() => toggleExpanded(node.id)}
+          className="
+            flex items-center gap-2 w-full py-1 text-sm font-medium text-zinc-300
+            hover:bg-zinc-800/50 hover:text-zinc-100 rounded-md transition-colors group
+          "
+          style={{ paddingLeft: `${indent}px`, paddingRight: "8px" }}
+        >
+          {isExpanded
+            ? <ChevronDown size={14} className="shrink-0 text-zinc-500 group-hover:text-zinc-400 transition-transform" />
+            : <ChevronRight size={14} className="shrink-0 text-zinc-500 group-hover:text-zinc-400" />
+          }
+          <Icon size={15} className={`shrink-0 ${color}`} />
+          <span className="truncate">{node.name}</span>
+        </button>
+
+        {isExpanded && node.children && (
+          <div>
+            {node.children.map((child) => (
+              <TreeNode
+                key={child.id}
+                node={child}
+                level={level + 1}
+                onContextMenu={onContextMenu}
+              />
+            ))}
+            {node.children.length === 0 && (
+              <p
+                className="text-xs text-zinc-600 italic py-1"
+                style={{ paddingLeft: `${indent + 32}px` }}
+              >
+                empty
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // File node
+  const { Icon, color } = getFileIcon(node.name);
+  return (
+    <button
+      onContextMenu={(e) => onContextMenu(e, node)}
+      onClick={() => openTab(node)}
+      title={node.name}
+      className={`
+        flex items-center gap-2 w-full py-1 text-sm rounded-md transition-all truncate
+        ${isActive
+          ? "bg-amber-500/15 text-amber-300 border-l-2 border-amber-500"
+          : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40"
+        }
+      `}
+      style={{
+        paddingLeft: `${indent + (isActive ? 0 : 2)}px`,
+        paddingRight: "8px",
+      }}
+    >
+      <Icon size={15} className={`shrink-0 ${color}`} />
+      <span className="truncate">{node.name}</span>
+    </button>
+  );
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 type SidebarProps = {
   activeTab?: string;
   onOpenFile?: ((fileName: string) => void) | null;
 };
 
-// Helper function to get icon and color based on file type
-const getFileIcon = (name: string): { Component: React.ComponentType<any>; color: string } => {
-  if (name.endsWith(".tsx") || name.endsWith(".jsx"))
-    return { Component: Code2, color: "text-blue-400" };
-  if (name.endsWith(".ts") || name.endsWith(".js"))
-    return { Component: FileCode2, color: "text-yellow-400" };
-  if (name.endsWith(".css") || name.endsWith(".scss"))
-    return { Component: Palette, color: "text-purple-400" };
-  if (name.endsWith(".md"))
-    return { Component: FileText, color: "text-orange-400" };
-  if (name.endsWith(".json"))
-    return { Component: Settings, color: "text-orange-300" };
-  if (name.endsWith(".mjs"))
-    return { Component: Settings, color: "text-amber-400" };
-  if (name.startsWith("."))
-    return { Component: Settings, color: "text-red-400" };
-  if (name === "node_modules")
-    return { Component: Package, color: "text-green-400" };
-  if (name === ".next")
-    return { Component: Zap, color: "text-yellow-500" };
-  if (name === ".git")
-    return { Component: GitBranch, color: "text-red-500" };
-  return { Component: File, color: "text-zinc-400" };
-};
+export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
+  const {
+    tree,
+    rootName,
+    hasFolder,
+    isLoading,
+    openFolder,
+    createFile,
+    createDirectory,
+    deleteEntry,
+    expandedIds,
+    toggleExpanded,
+  } = useFileSystem();
 
-const getFolderIcon = (name: string): { Component: React.ComponentType<any>; color: string } => {
-  if (name === "node_modules")
-    return { Component: Package, color: "text-green-400" };
-  if (name === ".next")
-    return { Component: Zap, color: "text-yellow-500" };
-  if (name === ".git")
-    return { Component: GitBranch, color: "text-red-500" };
-  if (name === "components" || name === "layouts")
-    return { Component: Box, color: "text-blue-400" };
-  if (name === "app")
-    return { Component: Code2, color: "text-red-400" };
-  if (name === "public")
-    return { Component: Globe, color: "text-blue-300" };
-  return { Component: Folder, color: "text-amber-400" };
-};
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
 
-export default function Sidebar({ activeTab = "explorer", onOpenFile }: SidebarProps) {
-  const [files] = useState<FileType[]>([
-    { id: "1", name: "page.tsx", content: "", language: "typescript" },
-    { id: "2", name: "globals.css", content: "", language: "css" },
-    { id: "3", name: "layout.tsx", content: "", language: "typescript" },
-  ]);
+  // Inline creation state
+  const [creating, setCreating] = useState<{
+    parentNode: FileNode | null;
+    kind: "file" | "directory";
+    parentLevel: number;
+  } | null>(null);
 
-  const fileTree: TreeItem[] = [
-    { id: "git", name: ".git", type: "folder" },
-    { id: "next", name: ".next", type: "folder" },
-    { id: "node_modules", name: "node_modules", type: "folder" },
-    {
-      id: "public",
-      name: "public",
-      type: "folder",
-      children: [],
+  // Close context menu on outside click
+  React.useEffect(() => {
+    if (!ctxMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) {
+        setCtxMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [ctxMenu]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, node });
+  }, []);
+
+  const handleNewFile = useCallback(
+    (parentNode: FileNode | null, level: number) => {
+      setCtxMenu(null);
+      setCreating({ parentNode, kind: "file", parentLevel: level });
     },
-    {
-      id: "src",
-      name: "src",
-      type: "folder",
-      children: [
-        {
-          id: "app",
-          name: "app",
-          type: "folder",
-          children: [
-            { id: "api", name: "api", type: "folder", children: [] },
-            { id: "editor", name: "editor", type: "folder", children: [] },
-            { id: "f1", name: "globals.css", type: "file" },
-            { id: "f2", name: "layout.tsx", type: "file" },
-            { id: "f3", name: "page.tsx", type: "file" },
-          ],
-        },
-        {
-          id: "components",
-          name: "components",
-          type: "folder",
-          children: [
-            { id: "f4", name: "FileItem.tsx", type: "file" },
-            {
-              id: "layouts",
-              name: "layouts",
-              type: "folder",
-              children: [
-                { id: "f5", name: "ActivityBar.tsx", type: "file" },
-                { id: "f6", name: "AppShell.tsx", type: "file" },
-                { id: "f7", name: "EditorTabs.tsx", type: "file" },
-                { id: "f8", name: "MainArea.tsx", type: "file" },
-                { id: "f9", name: "SideBar.tsx", type: "file" },
-                { id: "f10", name: "StatusBar.tsx", type: "file" },
-                { id: "f11", name: "TopBar.tsx", type: "file" },
-                { id: "f12", name: "Workspace.tsx", type: "file" },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    { id: "f13", name: ".gitignore", type: "file" },
-    { id: "f14", name: "AGENTS.md", type: "file" },
-    { id: "f15", name: "CLAUDE.md", type: "file" },
-    { id: "f16", name: "eslint.config.mjs", type: "file" },
-    { id: "f17", name: "next-env.d.ts", type: "file" },
-    { id: "f18", name: "next.config.ts", type: "file" },
-    { id: "f19", name: "package.json", type: "file" },
-    { id: "f20", name: "postcss.config.mjs", type: "file" },
-    { id: "f21", name: "README.md", type: "file" },
-    { id: "f22", name: "tsconfig.json", type: "file" },
-  ];
-
-  const [selectedFile, setSelectedFile] = useState<FileType | null>(files[0]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    new Set(["codehelp", "src", "app", "components", "layouts"])
+    [],
   );
 
-  const toggleFolder = (id: string) => {
-    const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedFolders(newExpanded);
-  };
+  const handleNewFolder = useCallback(
+    (parentNode: FileNode | null, level: number) => {
+      setCtxMenu(null);
+      setCreating({ parentNode, kind: "directory", parentLevel: level });
+    },
+    [],
+  );
 
-  const handleNewFile = () => {
-    // Logic to create a new file
-    console.log("New File button clicked");
-  };
-
-  const renderTreeItem = (item: TreeItem, level: number = 0): React.ReactNode => {
-    if (item.type === "folder") {
-      const { Component, color } = getFolderIcon(item.name);
-      const isExpanded = expandedFolders.has(item.id);
-      const hasChildren = item.children && item.children.length > 0;
-
-      return (
-        <div key={item.id}>
-          <button
-            onClick={() => toggleFolder(item.id)}
-            className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800/40 rounded-md w-full transition-all duration-150 text-zinc-300 text-sm font-medium group"
-            style={{ paddingLeft: `${12 + level * 16}px` }}
-          >
-            <ChevronDown
-              size={16}
-              className={`transition-transform shrink-0 text-zinc-600 group-hover:text-zinc-400 ${
-                isExpanded ? "" : "-rotate-90"
-              }`}
-            />
-            <Component size={16} className={`shrink-0 ${color}`} />
-            <span className="truncate text-zinc-300">{item.name}</span>
-          </button>
-
-          {isExpanded &&
-            hasChildren &&
-            item.children!.map((child) => renderTreeItem(child, level + 1))}
-        </div>
+  const handleDelete = useCallback(
+    async (node: FileNode) => {
+      setCtxMenu(null);
+      const confirmed = window.confirm(
+        `Delete "${node.name}"? This cannot be undone.`,
       );
-    } else {
-      const { Component, color } = getFileIcon(item.name);
-      return (
-        <button
-          key={item.id}
-          onClick={() => {
-            setSelectedFile({ id: item.id, name: item.name, content: "", language: "typescript" });
-            onOpenFile?.(item.name);
-          }}
-          className={`
-            flex items-center gap-2.5 px-3 py-1.5 w-full text-left
-            rounded-md transition-all duration-150 text-sm font-medium truncate group
-            ${
-              selectedFile?.id === item.id
-                ? "bg-amber-500/15 text-amber-300 border-l-2 border-amber-500"
-                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30"
-            }
-          `}
-          title={item.name}
-          style={{ paddingLeft: `${12 + level * 16}px` }}
-        >
-          <Component size={16} className={`shrink-0 ${color}`} />
-          <span className="truncate">{item.name}</span>
-        </button>
-      );
-    }
-  };
+      if (confirmed) await deleteEntry(node);
+    },
+    [deleteEntry],
+  );
+
+  const handleCreateConfirm = useCallback(
+    async (name: string) => {
+      if (!creating) return;
+      if (creating.kind === "file") {
+        await createFile(creating.parentNode, name);
+      } else {
+        await createDirectory(creating.parentNode, name);
+      }
+      setCreating(null);
+    },
+    [creating, createFile, createDirectory],
+  );
 
   return (
-    <aside className="w-56 h-full bg-zinc-900/80 border-r border-zinc-800/50 text-zinc-100 flex flex-col overflow-hidden animate-in fade-in duration-200 backdrop-blur-sm">
+    <aside className="w-56 h-full bg-zinc-900/80 border-r border-zinc-800/50 flex flex-col overflow-hidden backdrop-blur-sm">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-zinc-800/50 flex items-center justify-between">
-        <h2 className="text-sm uppercase tracking-widest text-zinc-400 font-bold">
+      <div className="px-4 py-3 border-b border-zinc-800/50 flex items-center justify-between shrink-0">
+        <h2 className="text-xs uppercase tracking-widest text-zinc-400 font-bold">
           {activeTab === "explorer" && "Explorer"}
           {activeTab === "search" && "Search"}
           {activeTab === "source" && "Source Control"}
           {activeTab === "run" && "Run & Debug"}
           {activeTab === "extensions" && "Extensions"}
         </h2>
+
         <div className="flex items-center gap-1 ml-auto">
+          {hasFolder && (
+            <>
+              <button
+                title="New File"
+                onClick={() => handleNewFile(null, 1)}
+                className="p-1.5 hover:bg-zinc-800/60 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <FilePlus size={15} />
+              </button>
+              <button
+                title="New Folder"
+                onClick={() => handleNewFolder(null, 1)}
+                className="p-1.5 hover:bg-zinc-800/60 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <FolderPlus size={15} />
+              </button>
+            </>
+          )}
           <button
-            className="p-1.5 hover:bg-zinc-800/60 rounded-md transition-all duration-150 text-zinc-500 hover:text-zinc-300"
-            title="More options"
+            title="Close sidebar"
+            className="p-1.5 hover:bg-zinc-800/60 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+            onClick={() => document.dispatchEvent(new CustomEvent("toggle-sidebar"))}
           >
-            <MoreVertical size={16} />
-          </button>
-          <button
-            title="Close sidebar (Ctrl+B)"
-            className="p-1.5 hover:bg-zinc-800/60 rounded-md transition-all duration-150 text-zinc-500 hover:text-zinc-300"
-            onClick={() => {
-              document.dispatchEvent(new CustomEvent("toggle-sidebar"));
-            }}
-          >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={15} />
           </button>
         </div>
       </div>
 
-      {/* Tree View */}
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        <button
-          onClick={() => toggleFolder("codehelp")}
-          className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/50 rounded-md w-full transition-all duration-150 text-zinc-100 text-sm font-bold group"
-        >
-          <ChevronDown
-            size={16}
-            className={`transition-transform shrink-0 text-zinc-500 group-hover:text-zinc-300 ${
-              expandedFolders.has("codehelp") ? "" : "-rotate-90"
-            }`}
-          />
-          <Folder size={16} className="shrink-0 text-amber-400" />
-          <span className="truncate">CODEHELP</span>
-        </button>
-
-        {expandedFolders.has("codehelp") && (
-          <div className="space-y-0.5">
-            {fileTree.map((item) => renderTreeItem(item, 1))}
+      {/* Tree area */}
+      <div className="flex-1 overflow-y-auto py-1 px-1.5 space-y-px">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-40 gap-3 text-zinc-500">
+            <Loader2 size={22} className="animate-spin text-amber-500" />
+            <p className="text-xs">Loading folder…</p>
           </div>
+        ) : !hasFolder ? (
+          /* Empty state */
+          <div className="flex flex-col items-center justify-center h-full gap-4 py-12 px-4 text-center">
+            <div className="p-4 bg-zinc-800/40 rounded-xl">
+              <FolderInput size={32} className="text-amber-500/70" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-300 font-semibold mb-1">No folder open</p>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Open a folder to start browsing and editing files.
+              </p>
+            </div>
+            <button
+              onClick={openFolder}
+              className="
+                mt-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold
+                rounded-lg transition-all duration-200 shadow-md hover:shadow-amber-500/20
+                active:scale-[0.97]
+              "
+            >
+              Open Folder
+            </button>
+          </div>
+        ) : (
+          /* Root tree */
+          <>
+            {/* Root folder row */}
+            <button
+              onClick={() => toggleExpanded("__root__")}
+              className="
+                flex items-center gap-2 w-full px-3 py-1.5 text-sm font-bold text-zinc-100
+                hover:bg-zinc-800/50 rounded-md transition-colors group
+              "
+            >
+              <ChevronDown
+                size={14}
+                className={`shrink-0 text-zinc-500 transition-transform ${expandedIds.has("__root__") || !expandedIds.has("__root__") ? "" : "-rotate-90"}`}
+              />
+              <Folder size={15} className="shrink-0 text-amber-400" />
+              <span className="truncate uppercase tracking-wide text-xs">
+                {rootName}
+              </span>
+            </button>
+
+            {/* Inline input at root level */}
+            {creating && creating.parentNode === null && (
+              <InlineInput
+                placeholder={creating.kind === "file" ? "filename.ts" : "folder-name"}
+                onConfirm={handleCreateConfirm}
+                onCancel={() => setCreating(null)}
+                indent={36}
+              />
+            )}
+
+            {/* Tree nodes */}
+            {tree.map((node) => (
+              <TreeNode
+                key={node.id}
+                node={node}
+                level={1}
+                onContextMenu={handleContextMenu}
+              />
+            ))}
+
+            {tree.length === 0 && (
+              <p className="text-xs text-zinc-600 italic px-6 py-2">
+                Folder is empty
+              </p>
+            )}
+          </>
         )}
       </div>
 
-      {/* Footer */}
-      <div className="border-t border-zinc-800/50 p-4">
-        <button
-          onClick={handleNewFile}
-          className="w-full flex items-center justify-center gap-2.5 bg-linear-to-r from-amber-600/80 to-amber-700/80 hover:from-amber-500/80 hover:to-amber-600/80 text-white px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98]"
+      {/* Footer buttons */}
+      {hasFolder && (
+        <div className="border-t border-zinc-800/50 p-3 flex gap-2">
+          <button
+            onClick={() => handleNewFile(null, 1)}
+            title="New File"
+            className="
+              flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold
+              bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100
+              rounded-lg transition-all duration-150 border border-zinc-700/50
+            "
+          >
+            <FilePlus size={14} />
+            File
+          </button>
+          <button
+            onClick={() => handleNewFolder(null, 1)}
+            title="New Folder"
+            className="
+              flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold
+              bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100
+              rounded-lg transition-all duration-150 border border-zinc-700/50
+            "
+          >
+            <FolderPlus size={14} />
+            Folder
+          </button>
+          <button
+            onClick={openFolder}
+            title="Open different folder"
+            className="
+              p-2 flex items-center justify-center
+              bg-amber-600/80 hover:bg-amber-500 text-white
+              rounded-lg transition-all duration-150
+            "
+          >
+            <FolderInput size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Context Menu */}
+      {ctxMenu && (
+        <div
+          ref={ctxMenuRef}
+          style={{ top: ctxMenu.y, left: ctxMenu.x }}
+          className="
+            fixed z-[999] min-w-[180px] bg-zinc-800 border border-zinc-700/60
+            rounded-lg shadow-2xl py-1 text-sm overflow-hidden
+          "
         >
-          <Plus size={18} />
-          <span>New File</span>
-        </button>
-      </div>
+          {ctxMenu.node.kind === "directory" && (
+            <>
+              <button
+                className="w-full flex items-center gap-3 px-3 py-2 text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
+                onClick={() => handleNewFile(ctxMenu.node, 2)}
+              >
+                <FilePlus size={14} className="text-zinc-400" />
+                New File
+              </button>
+              <button
+                className="w-full flex items-center gap-3 px-3 py-2 text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
+                onClick={() => handleNewFolder(ctxMenu.node, 2)}
+              >
+                <FolderPlus size={14} className="text-zinc-400" />
+                New Folder
+              </button>
+              <div className="border-t border-zinc-700/50 my-1" />
+            </>
+          )}
+          <button
+            className="w-full flex items-center gap-3 px-3 py-2 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+            onClick={() => handleDelete(ctxMenu.node)}
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
+          {/* Close option */}
+          <div className="border-t border-zinc-700/50 my-1" />
+          <button
+            className="w-full flex items-center gap-3 px-3 py-2 text-zinc-500 hover:bg-zinc-700/60 text-xs transition-colors"
+            onClick={() => setCtxMenu(null)}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
