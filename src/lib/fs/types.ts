@@ -8,10 +8,14 @@ export interface FileNode {
     name: string;
     kind: FileKind;
     children?: FileNode[]; // only for directories
-    /** Underlying handle – undefined for OPFS-backed nodes */
+    /** Underlying handle – undefined for backend mode */
     handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
     /** True while the directory's children have not been expanded yet */
     isLazy?: boolean;
+    /** Absolute filesystem path (backend mode) */
+    backendPath?: string;
+    /** Workspace root (backend mode) */
+    workspaceRoot?: string;
 }
 
 // ─── Editor Tab ───────────────────────────────────────────────────────────────
@@ -24,8 +28,12 @@ export interface EditorTab {
     /** Content as it exists on disk – used for dirty detection */
     savedContent: string;
     isDirty: boolean;
-    /** The actual handle to write back to disk */
+    /** The actual handle to write back to disk (native mode) */
     handle?: FileSystemFileHandle;
+    /** Absolute filesystem path (backend mode) */
+    backendPath?: string;
+    /** Workspace root (backend mode) */
+    workspaceRoot?: string;
 }
 
 // ─── FS Provider Interface ────────────────────────────────────────────────────

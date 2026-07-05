@@ -24,7 +24,6 @@ type CodeEditorProps = {
 };
 
 export default function CodeEditor({
-  fileName = "Untitled",
   content = "",
   language = "plaintext",
   onChange,

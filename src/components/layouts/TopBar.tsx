@@ -1,5 +1,5 @@
 import React from 'react'
-import { Search, Play, Save, Settings } from 'lucide-react' // Optional: if you use icons
+import { Play, Save, Settings } from 'lucide-react'
 
 export default function TopBar() {
   return (

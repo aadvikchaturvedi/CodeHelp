@@ -1,45 +1,38 @@
 /**
  * Auto-save manager.
  *
- * Wraps any IFileSystemProvider with debounced write logic.
- * Each file gets its own debounce timer so rapid edits in one file
- * don't cancel pending saves in another.
+ * Generic debounced write scheduler — accepts a save function
+ * instead of a provider + handle, so it works in both native and
+ * backend file system modes.
  */
-
-import type { IFileSystemProvider } from "./types";
 
 type PendingTimer = ReturnType<typeof setTimeout>;
 
 export class AutoSaveManager {
     private timers = new Map<string, PendingTimer>();
     private readonly delayMs: number;
-    private readonly provider: IFileSystemProvider;
 
-    constructor(provider: IFileSystemProvider, delayMs = 800) {
-        this.provider = provider;
+    constructor(delayMs = 800) {
         this.delayMs = delayMs;
     }
 
     /**
-     * Schedule a debounced write for the given handle.
+     * Schedule a debounced write for the given file.
      * Cancels any previously-pending write for the same file.
      *
      * @param fileId     Stable identifier for this file (e.g. path string)
-     * @param handle     The FileSystemFileHandle to write to
-     * @param content    Latest editor content
+     * @param saveFn     Async function that performs the actual write
      * @param onSaving   Called when the write starts
      * @param onSaved    Called when the write completes successfully
      * @param onError    Called if the write fails
      */
     schedule(
         fileId: string,
-        handle: FileSystemFileHandle,
-        content: string,
+        saveFn: () => Promise<void>,
         onSaving: () => void,
         onSaved: () => void,
         onError: (err: unknown) => void,
     ): void {
-        // Cancel the existing pending timer for this file
         const existing = this.timers.get(fileId);
         if (existing) clearTimeout(existing);
 
@@ -47,7 +40,7 @@ export class AutoSaveManager {
             this.timers.delete(fileId);
             onSaving();
             try {
-                await this.provider.writeFile(handle, content);
+                await saveFn();
                 onSaved();
             } catch (err) {
                 onError(err);
@@ -57,9 +50,6 @@ export class AutoSaveManager {
         this.timers.set(fileId, timer);
     }
 
-    /**
-     * Immediately flush all pending saves (e.g. before tab close or Ctrl+S).
-     */
     flushAll(): void {
         for (const timer of this.timers.values()) {
             clearTimeout(timer);
@@ -67,9 +57,6 @@ export class AutoSaveManager {
         this.timers.clear();
     }
 
-    /**
-     * Cancel the pending save for a specific file without writing.
-     */
     cancel(fileId: string): void {
         const timer = this.timers.get(fileId);
         if (timer) {

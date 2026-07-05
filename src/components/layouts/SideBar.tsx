@@ -29,7 +29,6 @@ import {
   FolderPlus,
   GitBranch,
   Globe,
-  MoreVertical,
   Palette,
   Package,
   Settings,
@@ -220,6 +219,7 @@ export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
     hasFolder,
     isLoading,
     openFolder,
+    openFolderFromPath,
     createFile,
     createDirectory,
     deleteEntry,
@@ -227,9 +227,35 @@ export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
     toggleExpanded,
   } = useFileSystem();
 
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'SideBar.tsx:state',message:'SideBar FS state',data:{hasFolder,isLoading,rootName,treeLength:tree.length},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+  }, [hasFolder, isLoading, rootName, tree.length]);
+  // #endregion
+
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
+
+  // Path input state (backend mode)
+  const [showPathInput, setShowPathInput] = useState(false);
+  const [pathInputValue, setPathInputValue] = useState("");
+  const pathInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (showPathInput) {
+      pathInputRef.current?.focus();
+    }
+  }, [showPathInput]);
+
+  const handlePathSubmit = () => {
+    const trimmed = pathInputValue.trim();
+    if (trimmed) {
+      openFolderFromPath(trimmed);
+      setShowPathInput(false);
+      setPathInputValue("");
+    }
+  };
 
   // Inline creation state
   const [creating, setCreating] = useState<{
@@ -366,10 +392,84 @@ export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
             >
               Open Folder
             </button>
+
+            {showPathInput ? (
+              <div className="mt-3 w-full">
+                <input
+                  ref={pathInputRef}
+                  value={pathInputValue}
+                  onChange={(e) => setPathInputValue(e.target.value)}
+                  placeholder="/absolute/path/to/folder"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handlePathSubmit();
+                    if (e.key === "Escape") {
+                      setShowPathInput(false);
+                      setPathInputValue("");
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!pathInputValue.trim()) {
+                      setShowPathInput(false);
+                    }
+                  }}
+                  className="
+                    w-full bg-zinc-800 border border-amber-500/40 rounded-lg px-3 py-2
+                    text-sm text-zinc-100 placeholder-zinc-500 outline-none
+                    focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30
+                  "
+                />
+                <p className="text-[10px] text-zinc-600 mt-1.5 text-left">
+                  Enter ↵ to confirm &middot; Esc to cancel
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowPathInput(true)}
+                className="
+                  mt-2 px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300
+                  border border-zinc-800 hover:border-zinc-700 rounded-lg
+                  transition-all duration-150
+                "
+              >
+                Open from path
+              </button>
+            )}
           </div>
         ) : (
           /* Root tree */
           <>
+            {/* Path input for backend mode when folder is open */}
+            {showPathInput && (
+              <div className="px-3 py-2 border-b border-zinc-800/50 mb-1">
+                <input
+                  ref={pathInputRef}
+                  value={pathInputValue}
+                  onChange={(e) => setPathInputValue(e.target.value)}
+                  placeholder="/absolute/path/to/folder"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handlePathSubmit();
+                    if (e.key === "Escape") {
+                      setShowPathInput(false);
+                      setPathInputValue("");
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!pathInputValue.trim()) {
+                      setShowPathInput(false);
+                    }
+                  }}
+                  className="
+                    w-full bg-zinc-800 border border-amber-500/40 rounded-lg px-3 py-2
+                    text-sm text-zinc-100 placeholder-zinc-500 outline-none
+                    focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30
+                  "
+                />
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Enter ↵ to open &middot; Esc to cancel
+                </p>
+              </div>
+            )}
+
             {/* Root folder row */}
             <button
               onClick={() => toggleExpanded("__root__")}
@@ -419,7 +519,7 @@ export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
 
       {/* Footer buttons */}
       {hasFolder && (
-        <div className="border-t border-zinc-800/50 p-3 flex gap-2">
+        <div className="border-t border-zinc-800/50 p-3 flex gap-2 flex-wrap">
           <button
             onClick={() => handleNewFile(null, 1)}
             title="New File"
@@ -446,11 +546,22 @@ export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
           </button>
           <button
             onClick={openFolder}
-            title="Open different folder"
+            title="Open different folder (File System API)"
             className="
               p-2 flex items-center justify-center
               bg-amber-600/80 hover:bg-amber-500 text-white
               rounded-lg transition-all duration-150
+            "
+          >
+            <FolderInput size={14} />
+          </button>
+          <button
+            onClick={() => setShowPathInput(true)}
+            title="Open folder from path"
+            className="
+              p-2 flex items-center justify-center
+              bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200
+              rounded-lg transition-all duration-150 border border-zinc-700/50
             "
           >
             <FolderInput size={14} />

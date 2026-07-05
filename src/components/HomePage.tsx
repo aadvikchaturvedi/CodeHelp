@@ -9,13 +9,8 @@ import {
   Shield,
   GitBranch,
   FileCode2,
-  ChevronRight,
-  Terminal,
   Cpu,
-  Globe,
   ArrowRight,
-  Star,
-  Check,
   Layout,
   MousePointer2,
 } from "lucide-react";
@@ -105,17 +100,6 @@ function FeatureCard({
  * Centered Code Window Mockup
  */
 function CodeWindow() {
-  const code = `// CodeHelp — real disk I/O
-import { useFileSystem } from "@/context/FileSystem";
-
-async function openProject() {
-  const { openFolder, tree } = useFileSystem();
-  await openFolder(); // Native OS Picker
-  
-  // Directly saved to your hard drive
-  console.log("Project loaded:", tree[0].name); 
-}`;
-
   return (
     <div className="relative w-full max-w-5xl mx-auto rounded-[3rem] overflow-hidden border border-zinc-900 bg-[#050505] shadow-[0_64px_128px_-16px_rgba(0,0,0,1)]">
         <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/[0.03] to-transparent pointer-events-none" />
@@ -131,15 +115,15 @@ async function openProject() {
         
         <div className="p-16 font-mono text-[14px] leading-[1.8] text-left overflow-x-auto selection:bg-amber-500/30">
             <pre className="text-zinc-500">
-              <span className="text-zinc-700">01  </span><span className="text-zinc-600">// CodeHelp — real disk I/O</span>{"\n"}
-              <span className="text-zinc-700">02  </span><span className="text-amber-500">import</span> <span className="text-zinc-100">{"{ useFileSystem }"}</span> <span className="text-amber-500">from</span> <span className="text-zinc-400">"@/context/FileSystem"</span>;{"\n"}
+              <span className="text-zinc-700">01  </span><span className="text-zinc-600">{"// CodeHelp — real disk I/O"}</span>{"\n"}
+              <span className="text-zinc-700">02  </span><span className="text-amber-500">import</span> <span className="text-zinc-100">{"{ useFileSystem }"}</span> <span className="text-amber-500">from</span> <span className="text-zinc-400">{"\"@/context/FileSystem\""}</span>;{"\n"}
               <span className="text-zinc-700">03  </span>{"\n"}
               <span className="text-zinc-700">04  </span><span className="text-amber-500">async function</span> <span className="text-zinc-100">openProject</span>() {"{"}{"\n"}
               <span className="text-zinc-700">05  </span>  <span className="text-amber-500">const</span> <span className="text-zinc-100">{"{ openFolder, tree }"}</span> = <span className="text-zinc-100">useFileSystem</span>();{"\n"}
-              <span className="text-zinc-700">06  </span>  <span className="text-amber-500">await</span> <span className="text-zinc-100">openFolder</span>(); <span className="text-zinc-600">// Native OS Picker</span>{"\n"}
+              <span className="text-zinc-700">06  </span>  <span className="text-amber-500">await</span> <span className="text-zinc-100">openFolder</span>(); <span className="text-zinc-600">{"// Native OS Picker"}</span>{"\n"}
               <span className="text-zinc-700">07  </span>  {"\n"}
-              <span className="text-zinc-700">08  </span>  <span className="text-zinc-600">// Directly saved to your hard drive</span>{"\n"}
-              <span className="text-zinc-700">09  </span>  <span className="text-zinc-100">console.log</span>(<span className="text-zinc-400">"Project loaded:"</span>, <span className="text-zinc-100">tree</span>[<span className="text-amber-500">0</span>].<span className="text-zinc-100">name</span>); {"\n"}
+              <span className="text-zinc-700">08  </span>  <span className="text-zinc-600">{"// Directly saved to your hard drive"}</span>{"\n"}
+              <span className="text-zinc-700">09  </span>  <span className="text-zinc-100">console.log</span>(<span className="text-zinc-400">{"\"Project loaded:\""}</span>, <span className="text-zinc-100">tree</span>[<span className="text-amber-500">0</span>].<span className="text-zinc-100">name</span>); {"\n"}
               <span className="text-zinc-700">10  </span>{"}"}
             </pre>
         </div>
@@ -301,7 +285,7 @@ export default function HomePage() {
               <span className="text-zinc-800">Advanced Privacy.</span>
             </h2>
             <p className="text-zinc-600 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
-                Industrial stability meets browser simplicity. We've rebuilt the IDE core to give you the speed of local tools with a web interface.
+                Industrial stability meets browser simplicity. We&apos;ve rebuilt the IDE core to give you the speed of local tools with a web interface.
             </p>
           </div>
 
