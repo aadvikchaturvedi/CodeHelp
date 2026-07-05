@@ -1,3 +1,4 @@
+# DEPLOYED_LINK: https://code-help-3kqniu20b-aadvik-chaturvedis-projects.vercel.app
 # CodeHelp
 
 A browser-first developer workspace built with Next.js, React, and Tailwind CSS. CodeHelp combines a browser IDE experience with local file system access, AI-assisted chat, and code completions.

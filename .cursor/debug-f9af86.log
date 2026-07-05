@@ -240,3 +240,7 @@
 {"sessionId":"f9af86","location":"SideBar.tsx:state","message":"SideBar FS state","data":{"hasFolder":false,"isLoading":false,"rootName":null,"treeLength":0},"timestamp":1783275891400,"hypothesisId":"H5"}
 {"sessionId":"f9af86","location":"Workspace.tsx:render","message":"Workspace render decision","data":{"hasActiveTab":false,"hasFolder":false,"rootName":null,"treeLength":0,"showingStarter":true},"timestamp":1783275971999,"hypothesisId":"H2"}
 {"sessionId":"f9af86","location":"SideBar.tsx:state","message":"SideBar FS state","data":{"hasFolder":false,"isLoading":false,"rootName":null,"treeLength":0},"timestamp":1783275972016,"hypothesisId":"H5"}
+{"sessionId":"f9af86","location":"Workspace.tsx:render","message":"Workspace render decision","data":{"hasActiveTab":false,"hasFolder":false,"rootName":null,"treeLength":0,"showingStarter":true},"timestamp":1783276043456,"hypothesisId":"H2"}
+{"sessionId":"f9af86","location":"SideBar.tsx:state","message":"SideBar FS state","data":{"hasFolder":false,"isLoading":false,"rootName":null,"treeLength":0},"timestamp":1783276043459,"hypothesisId":"H5"}
+{"sessionId":"f9af86","location":"Workspace.tsx:render","message":"Workspace render decision","data":{"hasActiveTab":false,"hasFolder":false,"rootName":null,"treeLength":0,"showingStarter":true},"timestamp":1783276083124,"hypothesisId":"H2"}
+{"sessionId":"f9af86","location":"SideBar.tsx:state","message":"SideBar FS state","data":{"hasFolder":false,"isLoading":false,"rootName":null,"treeLength":0},"timestamp":1783276083151,"hypothesisId":"H5"}
