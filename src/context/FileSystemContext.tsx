@@ -166,9 +166,6 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
   // ── open via native FS API ────────────────────────────────────────────────
 
   const openFolder = useCallback(async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'FileSystemContext.tsx:openFolder:entry',message:'openFolder called',data:{nativeSupported:isNativeFSSupported()},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     if (!isNativeFSSupported()) {
       alert(
         "Your browser does not support the File System Access API.\n" +
@@ -179,9 +176,6 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
 
     try {
       const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-      // #region agent log
-      fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'FileSystemContext.tsx:openFolder:pickerDone',message:'picker returned handle',data:{dirName:dirHandle.name,kind:dirHandle.kind},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-      // #endregion
       setIsLoading(true);
 
       rootHandleRef.current = dirHandle;
@@ -189,9 +183,6 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       setProvider("native");
 
       const nodes = await NativeFSProvider.buildTree(dirHandle, dirHandle.name);
-      // #region agent log
-      fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'FileSystemContext.tsx:openFolder:treeBuilt',message:'buildTree completed',data:{nodeCount:nodes.length,rootName:dirHandle.name},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       setTree(nodes);
       // Also sync into Zustand explorer store
       setExplorerTree(
@@ -210,14 +201,8 @@ export function FileSystemProvider({ children }: { children: React.ReactNode }) 
       setTabs([]);
       setActiveTabId(null);
       setSaveStatus({});
-      // #region agent log
-      fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'FileSystemContext.tsx:openFolder:stateSet',message:'all state updates dispatched',data:{nodeCount:nodes.length,rootName:dirHandle.name,hasFolder:true},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return;
-      // #region agent log
-      fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'FileSystemContext.tsx:openFolder:error',message:'openFolder failed',data:{errName:err instanceof Error?err.name:'unknown',errMsg:err instanceof Error?err.message:String(err)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       console.error("[FileSystem] openFolder error:", err);
     } finally {
       setIsLoading(false);

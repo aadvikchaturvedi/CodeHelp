@@ -19,11 +19,8 @@ export default function Workspace({
   onContentChange,
   onOpenFile,
 }: WorkspaceProps) {
-  const { openFolder, hasFolder, rootName, tree } = useFileSystem();
+  const { openFolder, hasFolder } = useFileSystem();
 
-  // #region agent log
-  fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'Workspace.tsx:render',message:'Workspace render decision',data:{hasActiveTab:!!activeTab,hasFolder,rootName,treeLength:tree.length,showingStarter:!activeTab},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
 
   if (!activeTab) {
     if (!hasFolder) {

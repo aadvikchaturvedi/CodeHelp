@@ -227,11 +227,6 @@ export default function Sidebar({ activeTab = "explorer" }: SidebarProps) {
     toggleExpanded,
   } = useFileSystem();
 
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7704/ingest/21c90beb-a2ba-444e-bd6c-01a44fb90e45',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f9af86'},body:JSON.stringify({sessionId:'f9af86',location:'SideBar.tsx:state',message:'SideBar FS state',data:{hasFolder,isLoading,rootName,treeLength:tree.length},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-  }, [hasFolder, isLoading, rootName, tree.length]);
-  // #endregion
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);

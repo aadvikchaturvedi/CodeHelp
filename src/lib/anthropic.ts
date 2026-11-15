@@ -15,6 +15,10 @@ export function getAnthropicClient(): Anthropic | null {
   return anthropicClient;
 }
 
+export function isAnthropicConfigured(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
 export const SYSTEM_PROMPT =
   "You are CodeHelp Assistant, embedded in a developer's workspace. You have access to the currently open file(s) as context. Give concise, actionable answers. When returning code, use fenced code blocks with the correct language tag. Do not fabricate file contents you haven't been given.";
 
@@ -57,6 +61,7 @@ export function truncateMessages(
 export async function streamChat(
   messages: ContextMessage[],
   fileAttachment?: FileAttachment,
+  signal?: AbortSignal,
 ): Promise<ReadableStream<Uint8Array>> {
   const client = getAnthropicClient();
   if (!client) {
@@ -76,13 +81,18 @@ export async function streamChat(
     content: msg.content,
   }));
 
-  const stream = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    system: systemContent,
-    messages: anthropicMessages,
-    stream: true,
-  });
+  // `signal` cancels the upstream HTTP request (and stops token generation)
+  // when the caller aborts, e.g. because the browser disconnected.
+  const stream = await client.messages.create(
+    {
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: systemContent,
+      messages: anthropicMessages,
+      stream: true,
+    },
+    { signal },
+  );
 
   const encoder = new TextEncoder();
 
@@ -104,13 +114,23 @@ export async function streamChat(
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (err) {
+        if (signal?.aborted) {
+          // Nobody is listening any more; just end the stream.
+          try { controller.close(); } catch {}
+          return;
+        }
         const errorData = JSON.stringify({
           type: "error",
           content: err instanceof Error ? err.message : "Stream failed",
         });
-        controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
-        controller.close();
+        try {
+          controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+          controller.close();
+        } catch {}
       }
+    },
+    cancel() {
+      stream.controller.abort();
     },
   });
 }

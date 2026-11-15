@@ -1,39 +1,76 @@
 import { NextRequest } from "next/server";
 import { ChatRequestSchema } from "@/lib/schemas";
-import { streamChat } from "@/lib/anthropic";
+import { isAnthropicConfigured, streamChat, SYSTEM_PROMPT } from "@/lib/anthropic";
 import { cacheGet, cacheSet, hashContent } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const CHAT_CACHE_TTL_SECONDS = 600;
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+function errorResponse(
+  status: number,
+  code: string,
+  message: string,
+  retryable: boolean,
+) {
+  return Response.json({ error: { code, message, retryable } }, { status });
+}
+
 export async function POST(request: NextRequest) {
+  let body: unknown;
   try {
-    const body = await request.json();
-    const parsed = ChatRequestSchema.safeParse(body);
+    body = await request.json();
+  } catch {
+    return errorResponse(400, "INVALID_INPUT", "Request body must be valid JSON.", false);
+  }
 
-    if (!parsed.success) {
-      return Response.json(
-        {
-          error: {
-            code: "INVALID_INPUT",
-            message: parsed.error.issues[0]?.message ?? "Invalid request",
-            retryable: false,
-          },
-        },
-        { status: 400 },
-      );
-    }
+  const parsed = ChatRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return errorResponse(
+      400,
+      "INVALID_INPUT",
+      parsed.error.issues[0]?.message ?? "Invalid request",
+      false,
+    );
+  }
 
+  // The key only ever lives in the server environment; the client just gets
+  // told that it is missing.
+  if (!isAnthropicConfigured()) {
+    return errorResponse(
+      503,
+      "AI_NOT_CONFIGURED",
+      "Claude is not configured on this server. Set ANTHROPIC_API_KEY in the server environment (e.g. .env.local) and restart, or switch the provider to Ollama.",
+      false,
+    );
+  }
+
+  // Abort the upstream Anthropic request when the browser goes away.
+  const upstream = new AbortController();
+  if (request.signal.aborted) upstream.abort();
+  else {
+    request.signal.addEventListener("abort", () => upstream.abort(), {
+      once: true,
+    });
+  }
+
+  try {
     const { messages, attachedFile } = parsed.data;
 
     const lastUserMsg = messages.filter((m) => m.role === "user").pop();
     let cacheKey: string | null = null;
 
     if (lastUserMsg && !attachedFile) {
-      const systemPrompt =
-        "role: assistant, system: You are CodeHelp Assistant embedded in a developer's workspace.";
       const raw =
-        systemPrompt +
+        SYSTEM_PROMPT +
         messages.map((m) => `${m.role}: ${m.content}`).join("\n");
       cacheKey = `chat:${hashContent(raw)}`;
       const cached = await cacheGet<string>(cacheKey);
@@ -51,20 +88,9 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        });
+        return new Response(stream, { headers: SSE_HEADERS });
       }
     }
-
-    const anthropicMessages = messages.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
 
     const fileAttachment = attachedFile
       ? {
@@ -74,77 +100,81 @@ export async function POST(request: NextRequest) {
         }
       : undefined;
 
-    const aiStream = await streamChat(anthropicMessages, fileAttachment);
-
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const encoder = new TextEncoder();
+    const aiStream = await streamChat(messages, fileAttachment, upstream.signal);
+    const reader = aiStream.getReader();
+    const decoder = new TextDecoder();
 
     let fullResponse = "";
+    let sawError = false;
 
-    const reader = aiStream.getReader();
-
-    (async () => {
-      try {
-        while (true) {
+    // Pass frames through unchanged while accumulating the text for the cache.
+    // streamChat already terminates the stream with `data: [DONE]`.
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
           const { done, value } = await reader.read();
           if (done) {
-            if (cacheKey && fullResponse) {
-              cacheSet(cacheKey, fullResponse, 600).catch(() => {});
+            // Only complete, successful answers are worth caching.
+            if (cacheKey && fullResponse && !sawError && !upstream.signal.aborted) {
+              cacheSet(cacheKey, fullResponse, CHAT_CACHE_TTL_SECONDS).catch(() => {});
             }
-            await writer.write(encoder.encode("data: [DONE]\n\n"));
-            await writer.close();
+            controller.close();
             return;
           }
 
-          const chunk = new TextDecoder().decode(value);
-          const sseLines = chunk.split("\n");
-          for (const line of sseLines) {
-            if (line.startsWith("data: ") && !line.includes("[DONE]")) {
-              try {
-                const parsed = JSON.parse(line.slice(6));
-                if (parsed.type === "text") {
-                  fullResponse += parsed.content;
-                }
-              } catch {}
-            }
+          for (const line of decoder.decode(value, { stream: true }).split("\n")) {
+            if (!line.startsWith("data: ") || line.includes("[DONE]")) continue;
+            try {
+              const frame = JSON.parse(line.slice(6));
+              if (frame.type === "text") fullResponse += frame.content;
+              else if (frame.type === "error") sawError = true;
+            } catch {}
           }
 
-          await writer.write(value);
+          controller.enqueue(value);
+        } catch (err) {
+          if (upstream.signal.aborted) {
+            try { controller.close(); } catch {}
+            return;
+          }
+          const errorData = JSON.stringify({
+            type: "error",
+            content: err instanceof Error ? err.message : "Stream failed",
+          });
+          try {
+            controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`));
+            controller.close();
+          } catch {}
         }
-      } catch (err) {
-        const errorData = JSON.stringify({
-          type: "error",
-          content: err instanceof Error ? err.message : "Stream failed",
-        });
-        await writer.write(
-          encoder.encode(`data: ${errorData}\n\n`),
-        );
-        await writer.close();
-      }
-    })();
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+      },
+      cancel() {
+        upstream.abort();
+        reader.cancel().catch(() => {});
       },
     });
+
+    return new Response(stream, { headers: SSE_HEADERS });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Internal server error";
-    const isConfigError = message.includes("ANTHROPIC_API_KEY");
-    return Response.json(
-      {
-        error: {
-          code: isConfigError ? "AI_NOT_CONFIGURED" : "STREAM_ERROR",
-          message: isConfigError
-            ? "AI assistant is not configured. Set ANTHROPIC_API_KEY to enable."
-            : "Failed to generate response",
-          retryable: !isConfigError,
-        },
-      },
-      { status: isConfigError ? 503 : 500 },
-    );
+    if (upstream.signal.aborted) {
+      // Client closed request; nothing useful to send back.
+      return new Response(null, { status: 499 });
+    }
+    console.error("[chat/stream] upstream error:", err);
+    const status =
+      typeof (err as { status?: unknown })?.status === "number"
+        ? (err as { status: number }).status
+        : 0;
+    if (status === 401 || status === 403) {
+      return errorResponse(
+        502,
+        "AI_AUTH_FAILED",
+        "Anthropic rejected the server's ANTHROPIC_API_KEY. Check the key in the server environment.",
+        false,
+      );
+    }
+    if (status === 429) {
+      return errorResponse(429, "AI_RATE_LIMITED", "Claude is rate limited right now. Try again shortly.", true);
+    }
+    return errorResponse(502, "STREAM_ERROR", "Claude request failed. Try again.", true);
   }
 }

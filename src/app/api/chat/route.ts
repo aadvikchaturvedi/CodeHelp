@@ -63,6 +63,8 @@ export async function POST(request: NextRequest) {
         stream: true,
         options: { temperature: 0.1 },
       }),
+      // Stop generation upstream if the browser disconnects.
+      signal: request.signal,
     });
 
     if (!res.ok) {

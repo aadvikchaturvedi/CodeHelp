@@ -10,7 +10,7 @@ Built with Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, Zusta
 
 - **Edits real files.** In Chromium browsers the folder is mounted through the File System Access API (`showDirectoryPicker`), so reads and writes go straight to disk with no server round trip. In other browsers you can type an absolute path instead, and a Node backend provider serves the tree and file contents through `/api/fs` and `/api/file`.
 - **Auto-saves.** Each keystroke goes through a per-file debounced scheduler (800 ms) that works with either provider and reports `saving` / `saved` / `error` status per tab.
-- **Context-aware chat.** The chat panel sends the conversation plus the active file (or an attached file) to the model, and renders streamed Markdown with sanitized syntax highlighting (`react-markdown` + `rehype-highlight` + `rehype-sanitize`).
+- **Context-aware chat with two providers.** A selector in the chat panel switches between a local Ollama model (`/api/chat`) and Claude (`/api/chat/stream`). Either way the panel sends the conversation plus the active file (or an attached file) and renders streamed Markdown with sanitized syntax highlighting (`react-markdown` + `rehype-highlight` + `rehype-sanitize`). The Anthropic key stays on the server; if it isn't set, the panel shows the server's `AI_NOT_CONFIGURED` message.
 - **Proactive suggestions.** About 3 seconds after you open a tab, the editor asks a local Ollama model for a likely next-line completion and shows it as a dismissible suggestion card.
 - **Workspace context export.** The explorer can compile the whole workspace (an ASCII tree plus file contents) into one LLM-ready context block and copy it to the clipboard.
 - **Live server metrics.** The top bar polls `/api/system/metrics` every 2 s for load average, memory and event-loop lag.
@@ -86,9 +86,10 @@ The client reads the stream with `ReadableStream.getReader()`, buffers partial l
 | Concern | What the code does | Where |
 |---|---|---|
 | Streaming | Model output is re-emitted as SSE frames (`data: {...}\n\n`, terminated by `data: [DONE]`) with `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no` so proxies don't buffer. Stream errors are sent as an in-band `{"type":"error"}` frame instead of dropping the connection. | `src/app/api/chat/route.ts`, `src/lib/anthropic.ts` |
-| Response cache | `/api/chat/stream` hashes the full conversation into a `chat:<hash>` key. On a hit it replays the cached answer as a single SSE frame; on a miss it tees the live stream, accumulates the text, and writes it to Redis with `SETEX` and a 600 s TTL once the stream ends. Requests with an attached file skip the cache. | `src/app/api/chat/stream/route.ts` |
+| Response cache | `/api/chat/stream` hashes the full conversation into a `chat:<hash>` key. On a hit it replays the cached answer as a single SSE frame; on a miss it passes the live stream through, accumulates the text, and caches it with a 600 s TTL once the stream ends. Only complete answers are cached: streams that errored or were aborted are not. Requests with an attached file skip the cache. With `REDIS_URL` set the cache is Redis (`SETEX`, eviction per the server's `maxmemory-policy`); without it, a per-process LRU of 200 entries that also honours the TTL (`src/lib/lru.ts`). | `src/app/api/chat/stream/route.ts`, `src/lib/cache.ts` |
+| Client disconnects | Both chat routes pass the request's abort signal upstream, so closing the tab or starting a new message stops generation at Ollama or Anthropic instead of running to completion. | `src/app/api/chat/route.ts`, `src/app/api/chat/stream/route.ts` |
 | Other caches | Syntax-highlight output cached 24 h per content hash + language. Sessions stored for 7 days. The metrics collector memoizes its result for 1 s. | `files/highlight`, `session/[id]`, `src/lib/metrics.ts` |
-| Redis is optional | The client is created lazily, only if `REDIS_URL` is set. Every cache call swallows errors and returns a miss, so a Redis outage degrades to "no cache" rather than failing requests. Reconnect backoff is `min(times × 200, 2000)` ms for up to 3 attempts. | `src/lib/cache.ts` |
+| Redis is optional | The client is created lazily, only if `REDIS_URL` is set; otherwise the in-memory LRU is used. Every Redis call swallows errors and returns a miss, so a Redis outage degrades to "no cache" rather than failing requests. Reconnect backoff is `min(times × 200, 2000)` ms for up to 3 attempts. | `src/lib/cache.ts` |
 | Context budget | Conversation history is trimmed newest-first to an estimated 80K tokens (chars / 4) before calling Claude. | `src/lib/anthropic.ts` |
 | Fail-fast health check | `/api/chat` pings Ollama's `/api/tags` with a 2 s `AbortSignal.timeout` before opening a stream, and returns a typed, retryable 503 if it's down. On first load the UI probes this and falls back to a local demo mode. | `src/app/api/chat/route.ts`, `workspace-provider.tsx` |
 | Typed errors | API errors share one shape: `{ error: { code, message, retryable } }` (schema in `src/lib/schemas.ts`). Zod validates the chat, session and highlight payloads. | `src/lib/schemas.ts` |
@@ -99,8 +100,8 @@ The client reads the stream with `ReadableStream.getReader()`, buffers partial l
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/chat` | Chat with the local Ollama model; SSE response. Used by the chat panel. |
-| `POST` | `/api/chat/stream` | Chat with Anthropic Claude (`claude-sonnet-4-20250514`, `max_tokens` 4096); Zod-validated, Redis-cached, SSE response. |
+| `POST` | `/api/chat` | Chat with the local Ollama model; SSE response. Used by the chat panel's "Ollama (local)" provider. |
+| `POST` | `/api/chat/stream` | Chat with Anthropic Claude (`claude-sonnet-4-20250514`, `max_tokens` 4096); Zod-validated, cached, SSE response. Used by the "Claude" provider. Errors: `400 INVALID_INPUT`, `503 AI_NOT_CONFIGURED`, `502 AI_AUTH_FAILED`, `429 AI_RATE_LIMITED`, `502 STREAM_ERROR`. |
 | `POST` | `/api/suggest` | `{ code, language, cursorLine? }` → `{ suggestion }`. Sends 15 lines before and 5 after the cursor to Ollama. |
 | `POST` | `/api/fs` | `{ path }` → recursive directory tree for an absolute path. |
 | `GET` / `POST` | `/api/file` | Read (`?path=&workspaceRoot=`) or write (`{ path, workspaceRoot, content }`) a file inside the workspace. |
@@ -138,14 +139,16 @@ REDIS_URL=redis://localhost:6379
 |---|---|---|
 | `OLLAMA_BASE_URL` | `/api/chat`, `/api/suggest` | `/api/suggest` defaults to `http://127.0.0.1:11434`; `/api/chat` has no default, so set it or the chat panel runs in demo mode. |
 | `OLLAMA_MODEL` | `/api/chat`, `/api/suggest` | Defaults to `mistral`. |
-| `ANTHROPIC_API_KEY` | `/api/chat/stream` | Without it the endpoint returns `503 AI_NOT_CONFIGURED`. |
-| `REDIS_URL` | cache, sessions | Optional. Everything works without it, just uncached. |
+| `ANTHROPIC_API_KEY` | `/api/chat/stream` | Needed for the Claude provider. Without it the endpoint returns `503 AI_NOT_CONFIGURED` and the panel shows that message. |
+| `REDIS_URL` | cache, sessions | Optional. Without it, chat responses use the in-memory LRU and sessions aren't persisted. |
 
 Other scripts:
 
 ```bash
 npm run build && npm run start   # production build (standalone output)
 npm run lint
+npm run typecheck
+npm test                         # node:test via tsx: LRU cache, request schema, Workspace SSR smoke test
 ```
 
 ### Docker
@@ -172,7 +175,8 @@ src/
   context/FileSystemContext.tsx    single source of truth for tree, tabs and save status
   lib/
     anthropic.ts                   Claude client, context truncation, SSE adapter
-    cache.ts                       Redis helpers, content hashing, in-flight dedupe helper
+    cache.ts                       Redis or in-memory LRU cache, content hashing, in-flight dedupe helper
+    lru.ts                         bounded LRU with per-entry TTL (in-memory cache fallback)
     schemas.ts                     Zod request/response schemas
     metrics.ts                     OS + event-loop metrics
     fs/                            native and backend providers, auto-save, Zustand store
@@ -180,11 +184,10 @@ src/
 
 ## Limitations and next steps
 
-- **Two chat backends, one wired.** The chat panel calls the Ollama route (`/api/chat`). The Claude route (`/api/chat/stream`), with its Redis cache, is implemented and validated but no UI component calls it yet. The same goes for `/api/session/:id` and `/api/files/highlight`.
+- **Unused routes.** `/api/session/:id` and `/api/files/highlight` are implemented but no UI component calls them yet.
 - **Request dedupe is unused.** `dedupeRequest()` in `src/lib/cache.ts` (coalesces identical in-flight requests onto one promise) exists but is not called by any route.
 - **Suggestions are cards, not ghost text.** They are fetched once per tab open, not on every cursor move, and are not registered as Monaco inline completions.
 - **Cache key strength.** `hashContent` is a 32-bit string hash, fine for a cache but collisions are possible; swapping in SHA-256 would be cheap.
 - **Backend FS provider trusts the client.** `/api/fs` will list any absolute path the server process can read. That's acceptable for a local dev tool and not for a multi-user deployment; there is no auth (the `/login` page is a stub).
 - **Docker build details.** The deps stage installs with `--only=production`, but `next build` needs the TypeScript/Tailwind dev dependencies, and the runner stage copies `public/`, which isn't in the repo. Both need adjusting before `docker compose up` builds cleanly. Compose also doesn't pass `OLLAMA_BASE_URL`.
-- **Tests.** There is one SSR smoke test (`src/components/layouts/Workspace.test.tsx`, `node:test`) and no `test` script or CI yet.
-- `src/context/FileSystemContext.tsx` still contains a debug `fetch` to a local ingest server on `127.0.0.1:7704` that should be removed.
+- **Tests.** 11 tests: the LRU cache, the chat request schema and a Workspace SSR smoke test. The chat routes themselves (streaming, caching, abort) have no tests yet. CI (`.github/workflows/ci.yml`) runs typecheck, lint and tests.

@@ -15,6 +15,14 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+type ChatProvider = 'ollama' | 'claude'
+
+// The API key for Claude stays on the server; the client only picks a route.
+const PROVIDERS: Record<ChatProvider, { label: string; endpoint: string }> = {
+  ollama: { label: 'Ollama (local)', endpoint: '/api/chat' },
+  claude: { label: 'Claude', endpoint: '/api/chat/stream' },
+}
+
 const SUGGESTION_ACTIONS: { label: string; prompt: string }[] = [
   { label: 'Optimize', prompt: 'Optimize this code for performance and readability' },
   { label: 'Explain', prompt: 'Explain this code in detail' },
@@ -40,6 +48,12 @@ export default function Chatbox() {
   const [panelWidth, setPanelWidth] = useState(400)
   const [isResizing, setIsResizing] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [provider, setProvider] = useState<ChatProvider>('ollama')
+  const abortRef = useRef<AbortController | null>(null)
+  // Demo mode only stands in for an unreachable Ollama; Claude always hits the server.
+  const useDemo = demoMode && provider === 'ollama'
+
+  useEffect(() => () => abortRef.current?.abort(), [])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -85,7 +99,7 @@ export default function Chatbox() {
 
     const previousMessages = chatMessages.filter((m) => m.status === 'done').map((m) => ({ role: m.role, content: m.content }))
 
-    if (demoMode) {
+    if (useDemo) {
       const demos = [
         "Here's what I'd suggest for this code:\n\n```typescript\nconst optimized = data\n  .filter(Boolean)\n  .map((x) => x.value)\n  .reduce((acc, v) => acc + v, 0);\n```\n\nThis chains operations efficiently. Want me to explain each step?",
         "I can see a potential improvement here. Consider:\n\n```typescript\n// Instead of multiple if-else\nconst handler: Record<string, () => void> = {\n  add: handleAdd,\n  remove: handleRemove,\n  update: handleUpdate,\n};\nhandler[action]?.();\n```\n\nCleaner dispatch pattern!",
@@ -103,14 +117,22 @@ export default function Chatbox() {
 
     try {
       const controller = new AbortController()
-      const res = await fetch('/api/chat', {
+      abortRef.current = controller
+      const messages = [...previousMessages, { role: 'user', content: text }]
+      const file = attachedFile ?? (activeTab
+        ? { name: activeTab.name, content: activeTab.content, language: activeTab.language }
+        : null)
+      const payload = provider === 'claude'
+        ? { messages, attachedFile: file ?? undefined }
+        : {
+            messages,
+            currentOpenFile: activeTab?.name,
+            currentCodeSnippet: attachedFile?.content || activeTab?.content,
+          }
+      const res = await fetch(PROVIDERS[provider].endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [...previousMessages, { role: 'user', content: text }],
-          currentOpenFile: activeTab?.name,
-          currentCodeSnippet: attachedFile?.content || activeTab?.content,
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       })
 
@@ -127,7 +149,7 @@ export default function Chatbox() {
       if (!reader) throw new Error('No response body')
 
       const decoder = new TextDecoder()
-      let buffer = '', accumulated = ''
+      let buffer = '', accumulated = '', streamError: string | null = null
 
       while (true) {
         const { done, value } = await reader.read()
@@ -140,17 +162,21 @@ export default function Chatbox() {
             try {
               const parsed = JSON.parse(line.slice(6))
               if (parsed.type === 'text') { accumulated += parsed.content; updateLastAssistantMessage(accumulated) }
+              else if (parsed.type === 'error') streamError = String(parsed.content ?? 'Stream failed')
             } catch {}
           }
         }
       }
-      setMessageStatus(assistantMsgId, 'done')
+      if (streamError) {
+        updateLastAssistantMessage(`${accumulated ? accumulated + '\n\n' : ''}⚠️ ${streamError}`)
+        setMessageStatus(assistantMsgId, 'error')
+      } else setMessageStatus(assistantMsgId, 'done')
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       updateLastAssistantMessage(`⚠️ ${err instanceof Error ? err.message : 'Connection failed'}`)
       setMessageStatus(assistantMsgId, 'error')
     } finally { setIsStreaming(false) }
-  }, [input, isStreaming, chatMessages, demoMode, attachedFile, activeTab, addChatMessage, updateLastAssistantMessage, setMessageStatus, setIsStreaming])
+  }, [isStreaming, chatMessages, useDemo, provider, attachedFile, activeTab, addChatMessage, updateLastAssistantMessage, setMessageStatus, setIsStreaming])
 
   const handleSendMessage = useCallback(() => sendMessage(input), [sendMessage, input])
 
@@ -238,20 +264,33 @@ export default function Chatbox() {
                 <div className={`w-1.5 h-1.5 rounded-full transition-all duration-500
                   ${isStreaming
                     ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)] animate-pulse'
-                    : demoMode
+                    : useDemo
                       ? 'bg-amber-600 shadow-[0_0_6px_rgba(217,119,6,0.3)]'
                       : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]'
                   }`}
                   style={isStreaming ? { animationDuration: '0.8s' } : undefined}
                 />
                 <span className="text-[10px] text-zinc-500">
-                  {isStreaming ? 'Generating' : demoMode ? 'Demo' : 'Online'}
+                  {isStreaming ? 'Generating' : useDemo ? 'Demo' : 'Online'}
                 </span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as ChatProvider)}
+              disabled={isStreaming}
+              aria-label="AI provider"
+              title="AI provider"
+              className="mr-1 bg-zinc-900/60 border border-zinc-700/50 rounded-lg px-1.5 py-1 text-[11px] text-zinc-300
+                focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+            >
+              {(Object.keys(PROVIDERS) as ChatProvider[]).map((id) => (
+                <option key={id} value={id}>{PROVIDERS[id].label}</option>
+              ))}
+            </select>
             <button
               onClick={() => setShowSuggestions(p => !p)}
               className="p-1.5 rounded-lg hover:bg-zinc-800/60 text-zinc-500 hover:text-amber-400 transition-all"
@@ -303,7 +342,7 @@ export default function Chatbox() {
         )}
 
         {/* Demo mode banner */}
-        {demoMode && (
+        {useDemo && (
           <div className="relative z-10 px-4 py-2 bg-gradient-to-r from-amber-500/10 to-transparent border-b border-amber-500/10 flex items-center gap-2 text-xs text-amber-400/80 shrink-0">
             <Sparkles size={12} />
             <span>Demo mode — <span className="text-amber-300">Ollama</span> not connected</span>

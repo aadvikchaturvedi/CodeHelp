@@ -1,4 +1,17 @@
 import Redis from "ioredis";
+import { LruCache } from "./lru";
+
+/**
+ * Two cache backends behind one API:
+ *  - Redis, when REDIS_URL is set: a TTL cache (SETEX). Eviction is whatever
+ *    the Redis server's maxmemory-policy says; this code does not make it LRU.
+ *  - Otherwise a per-process, bounded in-memory LRU (see ./lru.ts) that also
+ *    honours the TTL. It is not shared between server instances and is lost
+ *    on restart.
+ */
+export const MEMORY_CACHE_MAX_ENTRIES = 200;
+
+const memoryCache = new LruCache<string>(MEMORY_CACHE_MAX_ENTRIES);
 
 let redisClient: Redis | null = null;
 
@@ -35,7 +48,15 @@ export interface CacheEntry<T> {
 
 export async function cacheGet<T>(key: string): Promise<T | null> {
   const client = getRedisClient();
-  if (!client) return null;
+  if (!client) {
+    const raw = memoryCache.get(key);
+    if (raw === undefined) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
 
   try {
     const raw = await client.get(key);
@@ -52,7 +73,14 @@ export async function cacheSet(
   ttlSeconds: number,
 ): Promise<void> {
   const client = getRedisClient();
-  if (!client) return;
+  if (!client) {
+    try {
+      memoryCache.set(key, JSON.stringify(value), ttlSeconds);
+    } catch (err) {
+      console.error("[Cache] memory set error:", err);
+    }
+    return;
+  }
 
   try {
     const serialized = JSON.stringify(value);
@@ -64,7 +92,10 @@ export async function cacheSet(
 
 export async function cacheDelete(key: string): Promise<void> {
   const client = getRedisClient();
-  if (!client) return;
+  if (!client) {
+    memoryCache.delete(key);
+    return;
+  }
 
   try {
     await client.del(key);
